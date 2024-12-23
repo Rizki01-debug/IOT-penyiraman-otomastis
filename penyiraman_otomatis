@@ -1,0 +1,110 @@
+#include <WiFi.h>
+#include <HTTPClient.h>
+#include <ESP32Servo.h>
+
+// Konfigurasi pin
+#define MOISTURE_SENSOR_PIN 34
+#define SERVO1_PIN 18          // Servo pertama
+#define SERVO2_PIN 19          // Servo kedua
+
+Servo servo1;
+Servo servo2;
+
+// Nilai ambang kelembaban
+int moistureThreshold = 3000; // Ambang batas diperbaiki
+
+// Konfigurasi Wi-Fi
+const char* ssid = "Ipay22";
+const char* password = "Rivay220200";
+const char* serverURL = "http://192.168.56.1:8080/api/moisture"; // Ganti <IP_ADDRESS_LARAGON> dengan IP Laragon Anda
+
+void setup() {
+  Serial.begin(115200);
+  
+  // Konfigurasi servo
+  servo1.attach(SERVO1_PIN);
+  servo2.attach(SERVO2_PIN);
+  servo1.write(0);
+  servo2.write(0);
+  
+  pinMode(MOISTURE_SENSOR_PIN, INPUT);
+
+  // Inisialisasi Wi-Fi
+  WiFi.begin(ssid, password);
+  Serial.print("Menghubungkan ke Wi-Fi");
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("\nTerhubung ke Wi-Fi");
+  Serial.print("IP Address: ");
+  Serial.println(WiFi.localIP());
+}
+
+void loop() {
+  int moistureValue = analogRead(MOISTURE_SENSOR_PIN);
+  
+  // Debugging nilai sensor
+  Serial.print("Nilai Sensor Kelembaban Tanah: ");
+  Serial.println(moistureValue);
+
+  // Evaluasi kelembaban tanah
+  if (moistureValue >= moistureThreshold) {
+    Serial.println("Status: Tanah kering. Menyiram...");
+    
+    // Aktivasi servo1
+    servo1.write(180); // Posisi penyiraman
+    delay(2000);
+    servo1.write(0);   // Kembali ke posisi awal
+    
+    // Aktivasi servo2
+    servo2.write(180); // Posisi penyiraman
+    delay(2000);
+    servo2.write(0);   // Kembali ke posisi awal
+    
+    Serial.println("Status: Penyiraman selesai.");
+  } else {
+    Serial.println("Status: Tanah lembab, tidak perlu menyiram.");
+  }
+
+  // Kirim data kelembaban ke server
+  sendDataToServer(moistureValue);
+
+  delay(1000);
+}
+
+void sendDataToServer(int moistureValue) {
+  if (WiFi.status() == WL_CONNECTED) {
+    WiFiClient client;
+    HTTPClient http;
+
+    http.begin(client, serverURL);
+    http.addHeader("Content-Type", "application/json");
+
+    // Logika status tanah
+    String statusTanah;
+    if (moistureValue >= moistureThreshold) {
+      statusTanah = "Tanah kering";
+    } else {
+      statusTanah = "Tanah lembab";
+    }
+
+    // Format data JSON
+    String jsonData = "{\"moisture\": " + String(moistureValue) + ", \"status\": \"" + statusTanah + "\"}";
+    Serial.println("Mengirim data ke server: " + jsonData);
+
+    int httpResponseCode = http.POST(jsonData);
+
+    if (httpResponseCode > 0) {
+      Serial.print("Data berhasil dikirim. Kode Response: ");
+      Serial.println(httpResponseCode);
+    } else {
+      Serial.print("Gagal mengirim data. Error: ");
+      Serial.println(http.errorToString(httpResponseCode).c_str());
+    }
+
+    http.end();
+  } else {
+    Serial.println("Wi-Fi tidak terhubung. Data tidak terkirim.");
+  }
+}
